@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
+from datetime import datetime as dt
 import requests
-import csv
 import re
 
-
-fcc_data_url = "https://consumercomplaints.fcc.gov/hc/theme_assets/513073/200051444/Telemarketing_RoboCall_Weekly_Data.csv"
+# Deprecated URL. You need to get an app secret key from https://dev.socrata.com
+# fcc_data_url = "https://consumercomplaints.fcc.gov/hc/theme_assets/513073/200051444/Telemarketing_RoboCall_Weekly_Data.csv"
+fcc_data_url = "https://opendata.fcc.gov/resource/sr6c-syda.json"
 
 
 def _download_unwanted_call_log(fcc_data_url):
@@ -22,26 +23,28 @@ def _download_unwanted_call_log(fcc_data_url):
      [7]   Date (Ticket Date of Issue): The date the consumer states the indicated violation occurred.
      [8]   Date (Ticket Created): The date the complaint was submitted to the FCC.
     """
-    filename = fcc_data_url.split("/")[-1]
+    filename = "unwanted_call_log_{}.txt".format(
+        dt.strftime(dt.utcnow(), "%Y-%m-%d")
+        )
     r = requests.get(fcc_data_url)
+    fcc_data = r.json()
     call_log = []
-    for row in r.iter_lines():
-        call_log.append(row)
+    for row in fcc_data:
+        try:
+            call_log.append(row["caller_id_number"])
+        except KeyError:
+            # Silent pass as caller ID is not logged
+            pass
     return filename, call_log
 
 
 def _scrub_telephone_numbers(call_log):
     robo_caller_tn = []
-    tmp_file = csv.reader(call_log)
-    for row in tmp_file:
-        try:
-            if row[2]:
-                scrubbed_number = re.sub("-", "", row[2])
-                if len(scrubbed_number) > 9:
-                    robo_caller_tn.append(scrubbed_number)
-        except:
-            pass  # Silent fail
-    return robo_caller_tn
+    for row in call_log:
+        scrubbed_number = re.sub("-", "", row)
+        if len(scrubbed_number) > 9:
+            robo_caller_tn.append(scrubbed_number)
+    return list(set(robo_caller_tn))
 
 
 def _write_tn_list(phone_number_list, filename):
@@ -54,5 +57,6 @@ def _write_tn_list(phone_number_list, filename):
 
 filename, call_log = _download_unwanted_call_log(fcc_data_url)
 phone_number_list = _scrub_telephone_numbers(call_log)
+phone_number_list.sort()
 _write_tn_list(phone_number_list, filename)
 print "Your robo list has been written to {}".format(filename)
